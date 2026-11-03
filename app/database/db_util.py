@@ -1,6 +1,6 @@
 import sqlite3
 from datetime import datetime
-from flask import request
+from flask import request, g, has_request_context
 import logging
 import os
 from . import db_interface
@@ -8,7 +8,7 @@ import config
 
 DATA_DB_PATH = config.DB_ROOT + 'mai.db'
 DATA_DB_NAME = 'mai-db'
-DATA_DB_VERSION = 12
+DATA_DB_VERSION = 13
 
 LOG_DB_PATH = config.DB_ROOT + 'mai-log.db'
 LOG_DB_NAME = 'mai-logs'
@@ -113,6 +113,8 @@ def __check_data_table(db_connection):
         )"""
     )
 
+    __create_api_tables(cursor)
+
     cursor.execute("""
         INSERT OR IGNORE INTO version (db_name, db_version)
         VALUES(?, ?)""", (
@@ -121,6 +123,29 @@ def __check_data_table(db_connection):
     ))
     cursor.close()
     db_connection.commit()
+
+# Tables used only by the machine API (/api/v1). They sit beside the existing
+# tables and never change them: dropping both tables undoes the API completely.
+#   item_erp_link - which MAI item a UCLA ERP item number belongs to (many numbers
+#                   can point at one item; a number points at one item only)
+#   api_request   - the first answer to every write, by request_id, so that a
+#                   retried request is answered again instead of applied twice
+def __create_api_tables(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS item_erp_link (
+            erp_key text, item_id text, date int,
+            UNIQUE(erp_key)
+        )
+        """
+    )
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_request (
+            request_id text, status int, body text, date int,
+            UNIQUE(request_id)
+        )
+        """
+    )
 
 def __upgrade_data_db(db_connection):
     current_version = -1
@@ -359,6 +384,19 @@ def __upgrade_data_db(db_connection):
                 12
         ))
 
+    if current_version < 13:
+        # Upgrade to v13.0
+        logging.info("Upgrading data database to 13.0")
+
+        __create_api_tables(cursor)
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO version (db_name, db_version)
+            VALUES(?, ?)""", (
+                DATA_DB_NAME,
+                13
+        ))
+
     # Finally, commit the changes and close the cursor.
     db_connection.commit()
     cursor.close()
@@ -457,6 +495,10 @@ def format_timestamp(time):
 # Get user if authenticated, otherwise fall back to ip address
 def get_username(user):
     username = ""
+
+    # A request through the machine API (/api/v1) is shown under the API client's name
+    if has_request_context() and getattr(g, 'api_client', None):
+        return str(g.api_client)
 
     if not user:
         return "unknown"

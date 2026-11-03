@@ -22,3 +22,6 @@ You can run directly on your local system:
 ```
 ./run_website.sh
 ```
+
+### Machine API
+The ScanBase scanning app adds items through a small JSON API under `/api/v1`. It is off unless `MAI_API_KEY` is set. See [API.md](API.md).
