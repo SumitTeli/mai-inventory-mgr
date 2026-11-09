@@ -304,6 +304,26 @@ def api_v1_item_quantity(item_id):
 
     return run_once(body, 'quantity', write, item_id)
 
+# Link one more ERP item number to an existing item (e.g. during a re-scan).
+# Linking a number that is already linked to this item changes nothing.
+@app.route('/api/v1/items/<string:item_id>/erp-links', methods=['POST'], provide_automatic_options=False)
+@api_endpoint
+def api_v1_item_erp_link(item_id):
+    item_id = item_id.strip()
+    body = __json_body()
+
+    def write():
+        erp_key = __erp_key(body)
+        if __item_json(item_id) is None:
+            raise ApiError(404, "Item not found.")
+        linked = database.insert_erp_link(erp_key, item_id)
+        if linked != item_id:
+            raise ApiError(409, "This erp_key is already linked to another item.", code='erp_key_linked',
+                           item_id=linked, item_deleted=__item_json(linked) is None)
+        return __item_json(item_id), 200
+
+    return run_once(body, 'erp-link', write, item_id)
+
 @api_endpoint
 def __unknown_call():
     raise ApiError(404, "Unknown API call.")

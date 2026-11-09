@@ -124,6 +124,19 @@ statement, so two updates at the same time never overwrite each other.
   below 0 after all, or it was deleted); nothing changed, send it again. (A safeguard: with one server
   worker, requests run one at a time.)
 
+### `POST /api/v1/items/<item_id>/erp-links`
+Link one more ERP item number to an item that already exists (used once per item during a
+re-scan of existing stock).
+```json
+{"erp_key": "000248", "request_id": "<uuid>"}
+```
+- `erp_key` (letters, digits, `.`, `-`, `_`) and `request_id` are required; `400` if missing
+  or invalid.
+- `200` with the item. Linking a number that is already linked to this item changes nothing.
+- `409` `erp_key_linked` if the number is linked to another item (it is never moved):
+  `{"error": "…", "code": "erp_key_linked", "item_id": "…", "item_deleted": false}`.
+- `404` if the item does not exist or is deleted.
+
 ## Database
 
 Two new tables. No existing table or column changes.
