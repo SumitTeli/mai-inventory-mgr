@@ -15,6 +15,8 @@ SLACK_LOGGING_URL = os.environ.get("SLACK_LOGGING_URL", None)
 
 # Machine API (/api/v1, see API.md). Disabled unless a key is set.
 API_KEY = os.environ.get("MAI_API_KEY", "").strip() or None
+# Shown as the "user" in the audit log for every change made through the API.
+API_CLIENT_NAME = os.environ.get("MAI_API_CLIENT_NAME", "scanbase-api")
 
 # Stage
 STAGE = os.environ.get("STAGE", "dev")

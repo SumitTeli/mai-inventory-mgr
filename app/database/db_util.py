@@ -1,6 +1,6 @@
 import sqlite3
 from datetime import datetime
-from flask import request
+from flask import request, g, has_request_context
 import logging
 import os
 from . import db_interface
@@ -111,6 +111,30 @@ def __check_data_table(db_connection):
             db_name text, db_version int,
             UNIQUE(db_name)
         )"""
+    )
+
+    # Used only by the machine API (/api/v1, see API.md): which item a UCLA ERP item
+    # number belongs to. Several numbers can point at one item; a number points at
+    # one item only. No existing table changes.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS item_erp_link (
+            erp_key text, item_id text, date int,
+            UNIQUE(erp_key)
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS item_erp_link_item_id ON item_erp_link (item_id)")
+
+    # Used only by the machine API (/api/v1): every write by request_id - what it
+    # was (kind + fingerprint of the request) and its answer (status 0 while it
+    # runs) - so that a retried request is answered again instead of being applied
+    # twice. No existing table changes.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_request (
+            request_id text, kind text, fingerprint text, status int, body text, date int,
+            UNIQUE(request_id)
+        )
+        """
     )
 
     cursor.execute("""
@@ -457,6 +481,10 @@ def format_timestamp(time):
 # Get user if authenticated, otherwise fall back to ip address
 def get_username(user):
     username = ""
+
+    # A request through the machine API (/api/v1) is shown under the API client's name
+    if has_request_context() and getattr(g, 'api_client', None):
+        return str(g.api_client)
 
     if not user:
         return "unknown"
