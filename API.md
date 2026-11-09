@@ -27,22 +27,28 @@ for every change made through the API.
   can point to one item (for example one "face shield" item for several brands); one number
   points to one item only. Numbers are letters, digits, `.`, `-` and `_` (starting with a
   letter or digit), so each one can be looked up in a URL.
-- **Nothing existing is overwritten.** The API creates items. It never changes a name,
-  category or note your team set, and never deletes anything your team made. (The one
-  delete: if a new item's number cannot be linked, the API takes back the item it just made,
-  so no item is left without its number. That shows in the audit log too.)
+- **Nothing existing is overwritten.** The API creates items and adds to `quantity_active`.
+  It never changes a name, category or note your team set, and never deletes anything your
+  team made. (The one delete: if a new item's number cannot be linked, the API takes back
+  the item it just made, so no item is left without its number. That shows in the audit
+  log too.)
 - **Every write is applied at most once.** Every write carries a `request_id`:
   - A write that finished: sending the same `request_id` again returns the same answer and
     changes nothing. Writes run one at a time, so two copies arriving together are applied
     once.
-  - A write that was refused (`400`, `404`, `413`, `422`, or `409` `erp_key_linked`) changed
-    nothing.
+  - A write that was refused (`400`, `404`, `413`, `422`, or `409` `erp_key_linked` or
+    `changed_meanwhile`) changed nothing.
     It can be sent again once the cause is fixed.
   - A write that broke off half-way (a server error, or a restart mid-request): sending it
     again is refused (`409` `did_not_finish`) instead of applied a second time. A person
     checks in the audit log (`/view/audit`, under the API's name) what was done, then sends
     what is missing with a **new** `request_id`.
   - The same `request_id` with a different request is refused (`409` `request_id_reused`).
+    The one exception is the same scanned line: if a create succeeded but its answer was
+    lost, the retry (sent as a quantity update once the item is found) gets the create's
+    answer back (`201`), so the line is never counted twice.
+- **Quantity never goes below 0.** Like check-out on the website, a subtraction that would
+  go below 0 is refused (`422`) and changes nothing.
 - **Every change goes through the normal database functions**, so it shows in the audit
   log (`/view/audit`) with before/after, and Litestream backs it up like everything else.
 - **Requests are JSON:** send `Content-Type: application/json`.
@@ -54,6 +60,7 @@ for every change made through the API.
   | `erp_key_linked` | the number already belongs to an item (`item_id` in the answer) | use that item |
   | `did_not_finish` | an earlier try of this `request_id` broke off half-way | do not resend; a person checks |
   | `request_id_reused` | this `request_id` was used for a different request | a bug in the client |
+  | `changed_meanwhile` | the item changed between the check and the update | send it again |
 - **Small requests only:** a body over 64 KB is refused (`413`).
 - **Text is text, and no HTML gets in.** Text fields must be JSON strings, and may not
   contain `<`, `>` or control characters (`400`), so nothing sent through the API can change
@@ -99,6 +106,23 @@ Create an item and link its ERP item number.
 - `422` for an unknown or deleted category, a subcategory of another category, or a
   category with no active subcategory.
 - `400` for missing or invalid fields.
+
+### `POST /api/v1/items/<item_id>/quantity`
+Add to (or, with a negative number, subtract from) the active quantity, in one database
+statement, so two updates at the same time never overwrite each other.
+```json
+{"delta": 2, "request_id": "<uuid>"}
+```
+- `delta` (a whole number between -2147483647 and 2147483647) and `request_id` are required.
+  `0` changes nothing.
+- `200` with `{"item_id": "…", "quantity_active": 5}`.
+- `201` with the full item, for the lost create answer described under the rules.
+- `request_id` up to 100 characters.
+- `404` if the item does not exist or is deleted.
+- `422` if it would go below 0: `{"error": "Not enough in stock.", "quantity_active": 4}`.
+- `409` `changed_meanwhile` if the item changed between the check and the update (it would go
+  below 0 after all, or it was deleted); nothing changed, send it again. (A safeguard: with one server
+  worker, requests run one at a time.)
 
 ## Database
 

@@ -93,7 +93,7 @@ def run_once(body, kind, write, item_id=None):
         if stored is None and not database.start_api_request(request_id, kind, fingerprint):
             stored = database.get_api_request(request_id)
         if stored is not None:
-            return __stored_answer(stored, kind, fingerprint)
+            return __stored_answer(stored, kind, fingerprint, item_id)
         try:
             result, status = write()
         except ApiError:
@@ -109,11 +109,16 @@ def __fingerprint(body, item_id):
     text = json.dumps([item_id, asked], sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
-def __stored_answer(stored, kind, fingerprint):
+def __stored_answer(stored, kind, fingerprint, item_id):
     if stored['status'] == 0:
         raise ApiError(409, "An earlier try of this request did not finish, so it is not run again. "
                             "Please check the audit log on the website.", code='did_not_finish')
     if stored['kind'] == kind and stored['fingerprint'] == fingerprint:
+        return stored['body'], stored['status']
+    # The one allowed crossover: a create whose answer was lost, sent again as a
+    # quantity update once the scanner found the item. It is the same scanned line,
+    # already counted by the create, so it gets the create's answer.
+    if kind == 'quantity' and stored['kind'] == 'create' and stored['body'].get('item_id') == item_id:
         return stored['body'], stored['status']
     raise ApiError(409, "This request_id was already used for a different request.", code='request_id_reused')
 
@@ -273,6 +278,31 @@ def api_v1_create_item():
         return __item_json(item_id), 201
 
     return run_once(body, 'create', write)
+
+# Add to (or subtract from) an item's active quantity
+@app.route('/api/v1/items/<string:item_id>/quantity', methods=['POST'], provide_automatic_options=False)
+@api_endpoint
+def api_v1_item_quantity(item_id):
+    item_id = item_id.strip()
+    body = __json_body()
+
+    def write():
+        diff = __integer(body, 'delta', -MAX_QUANTITY, MAX_QUANTITY)
+        item = __item_json(item_id)
+        if item is None:
+            raise ApiError(404, "Item not found.")
+        if diff == 0:
+            return {'item_id': item['item_id'], 'quantity_active': item['quantity_active']}, 200
+        # Same rule as check-out on the website: never below 0.
+        if item['quantity_active'] + diff < 0:
+            raise ApiError(422, "Not enough in stock.", quantity_active=item['quantity_active'])
+        new_quantity = database.add_item_quantity_active(item_id, diff)
+        if new_quantity is None:
+            # Safeguard: the update itself re-checks "never below 0" in the same statement.
+            raise ApiError(409, "The item changed at the same time. Please try again.", code='changed_meanwhile')
+        return {'item_id': item['item_id'], 'quantity_active': new_quantity}, 200
+
+    return run_once(body, 'quantity', write, item_id)
 
 @api_endpoint
 def __unknown_call():

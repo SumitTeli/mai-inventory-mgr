@@ -270,6 +270,34 @@ def update_item_quantity_active(item_id, new_quantity):
 
     db_audit.insert_item_audit_event(item_id, "Updated active quantity.", item_before, get_item(item_id))
 
+# Add to (or subtract from) an item's active quantity in one statement, so two
+# updates at the same time can never overwrite each other. Like check-out, it is
+# refused if the quantity would go below 0. Returns the new active quantity, or
+# None if nothing changed (item missing or deleted, or not enough in stock).
+def add_item_quantity_active(item_id, diff):
+    db_connection = db.get_data_db()
+    cursor = db_connection.cursor()
+    item_before = get_item(item_id)
+
+    cursor.execute("""
+        UPDATE item SET quantity_active=quantity_active + ? WHERE item_id=? AND deleted=0 AND quantity_active + ? >= 0""", (
+            int(diff),
+            str(item_id).strip(),
+            int(diff)
+        ))
+    updated = cursor.rowcount
+
+    # Save (commit) the changes
+    db_connection.commit()
+    cursor.close()
+
+    if updated == 0:
+        return None
+
+    item_after = get_item(item_id)
+    db_audit.insert_item_audit_event(item_id, "Updated active quantity.", item_before, item_after)
+    return item_after['quantity_active']
+
 # Update an item's expired quantity
 def update_item_quantity_expired(item_id, new_quantity):
     db_connection = db.get_data_db()
