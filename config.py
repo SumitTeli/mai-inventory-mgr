@@ -13,6 +13,9 @@ IMGUR_CLIENT_ID = os.environ.get("MAI_IMGUR_CLIENT_ID", None)
 # Slack error logging url
 SLACK_LOGGING_URL = os.environ.get("SLACK_LOGGING_URL", None)
 
+# Machine API (/api/v1, see API.md). Disabled unless a key is set.
+API_KEY = os.environ.get("MAI_API_KEY", "").strip() or None
+
 # Stage
 STAGE = os.environ.get("STAGE", "dev")
 

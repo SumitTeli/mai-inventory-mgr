@@ -34,6 +34,7 @@ def load_user(user_id):
 # Load the views
 from app.views import (
     view_api,
+    view_api_v1,
     view_auth,
     view_delete,
     view_edit,

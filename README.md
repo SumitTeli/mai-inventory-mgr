@@ -22,3 +22,6 @@ You can run directly on your local system:
 ```
 ./run_website.sh
 ```
+
+### Machine API
+A small JSON API under `/api/v1` for the ScanBase scanning app (UCLA Health Materials Management). It is off unless `MAI_API_KEY` is set. See [API.md](API.md).
